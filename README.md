@@ -93,6 +93,30 @@ Set any of these directly with `set -U history_sync_interval 600` etc.
 > don't expand the tilde. Use a path relative to the remote home directory
 > (e.g. `.local/share/fish/fish_history`) or an absolute path.
 
+## Contributing
+
+All changes land via PRs. PR titles follow Conventional Commits — the
+release workflow uses the title to decide the next version when the PR
+is merged to `main`:
+
+| PR title prefix | bump | example |
+|---|---|---|
+| `major:` (or `!:`) | major | `major: rewrite sync engine` → `v1.2.3` → `v2.0.0` |
+| `feat:` | minor | `feat: add --force flag` → `v1.2.3` → `v1.3.0` |
+| `fix:` | patch | `fix: lock acquisition race` → `v1.2.3` → `v1.2.4` |
+| `chore:` | _no release_ | `chore: bump CI action` |
+
+Optional scope (`feat(setup): ...`) and breaking marker (`feat!: ...`) are
+allowed. Anything else fails the workflow.
+
+Each release publishes three tags pointing at the same commit:
+
+- `vX.Y.Z` — immutable per-release tag
+- `vX.Y` — floating, moves with each patch
+- `vX` — floating, moves with each minor or patch
+
+Pin in `fisher` to whichever level of stability you want.
+
 ## Caveats
 
 - The plugin **never deletes** history entries. If you want to forget a

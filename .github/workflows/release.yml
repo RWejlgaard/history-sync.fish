@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine bump type from PR title
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prefer the PR title (handles both squash and regular merge commits).
+          # Fall back to the commit subject for direct pushes to main.
+          subject="$(gh api "/repos/$GH_REPO/commits/$SHA/pulls" --jq '.[0].title // ""' 2>/dev/null || true)"
+          if [ -z "$subject" ]; then
+            subject="$(git log -1 --pretty=%s)"
+          fi
+          echo "subject: $subject"
+
+          # Conventional-commit type may be followed by optional scope and `!`
+          # for breaking changes, e.g. `feat(api)!: drop endpoint`.
+          if [[ "$subject" =~ ^chore(\(.+\))?!?: ]]; then
+            kind=skip
+          elif [[ "$subject" =~ ^major(\(.+\))?!?: ]]; then
+            kind=major
+          elif [[ "$subject" =~ ^feat(\(.+\))?!?: ]]; then
+            kind=minor
+          elif [[ "$subject" =~ ^fix(\(.+\))?!?: ]]; then
+            kind=patch
+          else
+            echo "::error::commit subject must start with chore:, fix:, feat:, or major: — got '$subject'"
+            exit 1
+          fi
+          echo "kind=$kind"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "subject=$subject" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        if: steps.bump.outputs.kind != 'skip'
+        id: ver
+        shell: bash
+        env:
+          KIND: ${{ steps.bump.outputs.kind }}
+        run: |
+          set -euo pipefail
+          latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            major=0; minor=0; patch=0
+            base="v0.0.0 (no existing tags)"
+          else
+            v="${latest#v}"
+            IFS=. read -r major minor patch <<<"$v"
+            base="$latest"
+          fi
+          case "$KIND" in
+            major) major=$((major+1)); minor=0; patch=0 ;;
+            minor) minor=$((minor+1)); patch=0 ;;
+            patch) patch=$((patch+1)) ;;
+          esac
+          echo "bumping $base -> v${major}.${minor}.${patch} ($KIND)"
+          echo "full=v${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
+          echo "minor=v${major}.${minor}"      >> "$GITHUB_OUTPUT"
+          echo "major=v${major}"               >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tags
+        if: steps.bump.outputs.kind != 'skip'
+        shell: bash
+        env:
+          FULL:  ${{ steps.ver.outputs.full }}
+          MINOR: ${{ steps.ver.outputs.minor }}
+          MAJOR: ${{ steps.ver.outputs.major }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Immutable per-release tag
+          git tag -a "$FULL" -m "$FULL"
+          # Floating major/minor pointers — re-create each release
+          git tag -f "$MINOR"
+          git tag -f "$MAJOR"
+          git push origin "$FULL"
+          git push origin -f "$MINOR" "$MAJOR"
+
+      - name: Create GitHub release
+        if: steps.bump.outputs.kind != 'skip'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL: ${{ steps.ver.outputs.full }}
+        run: |
+          set -euo pipefail
+          gh release create "$FULL" \
+            --title "$FULL" \
+            --generate-notes
