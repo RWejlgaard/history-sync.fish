@@ -9,19 +9,28 @@ function history_sync_status --description "Show fish-history-sync configuration
     echo "  max retries:  $history_sync_max_retries"
     echo "  history file: $history_sync_history_file"
 
+    set -l now (date +%s)
     if set -q __history_sync_last
-        set -l now (date +%s)
         set -l ago (math $now - $__history_sync_last)
-        echo "  last sync:    $__history_sync_last ($ago s ago)"
+        echo "  last attempt: $__history_sync_last ($ago s ago)"
     else
-        echo "  last sync:    never"
+        echo "  last attempt: never"
+    end
+    if set -q __history_sync_last_success; and test -n "$__history_sync_last_success"
+        set -l ago (math $now - $__history_sync_last_success)
+        echo "  last success: $__history_sync_last_success ($ago s ago)"
+    else
+        echo "  last success: never"
+    end
+    if set -q __history_sync_last_error; and test -n "$__history_sync_last_error"
+        echo "  last error:   $__history_sync_last_error"
     end
 
     if set -q history_sync_host; and set -q history_sync_path
         echo
         echo "Probing remote lock..."
         set -l probe (mktemp /tmp/fhs_probe.XXXXXX)
-        if printf '%s\n' "get $history_sync_path.lock $probe" | __history_sync_sftp >/dev/null 2>&1
+        if printf '%s\n' "get \"$history_sync_path.lock\" \"$probe\"" | __history_sync_sftp >/dev/null 2>&1
             echo "  remote lock IS held:"
             sed 's/^/    /' $probe
         else

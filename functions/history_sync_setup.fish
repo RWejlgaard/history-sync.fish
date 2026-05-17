@@ -46,10 +46,7 @@ function history_sync_setup --description "Interactively configure fish-history-
     echo
     echo "Saved. Testing connection..."
     set -l errfile (mktemp /tmp/fhs_test.XXXXXX)
-    if printf '%s\n' "pwd" | __history_sync_sftp >/dev/null 2>$errfile
-        echo "  SFTP connection OK."
-        rm -f $errfile
-    else
+    if not printf '%s\n' "pwd" | __history_sync_sftp >/dev/null 2>$errfile
         echo "  SFTP connection FAILED. sftp said:"
         sed 's/^/    /' $errfile
         rm -f $errfile
@@ -65,6 +62,32 @@ function history_sync_setup --description "Interactively configure fish-history-
         echo "        fix: set -U history_sync_ssh_options ProxyJump=bastion"
         return 1
     end
+    echo "  SFTP connection OK."
+    rm -f $errfile
+
+    # Round-trip a small file to the configured path's parent directory
+    # so we catch wrong-path / no-perm at setup time, not silently on the
+    # next background sync.
+    set -l parent_dir (dirname $path)
+    set -l probe_remote "$path.setup_probe.$fish_pid"
+    set -l probe_local (mktemp /tmp/fhs_probe.XXXXXX)
+    echo "fish-history-sync setup probe" >$probe_local
+    set -l werr (mktemp /tmp/fhs_werr.XXXXXX)
+    set -l write_batch "-mkdir \"$parent_dir\"
+put \"$probe_local\" \"$probe_remote\"
+-rm \"$probe_remote\""
+    if printf '%s\n' $write_batch | __history_sync_sftp >/dev/null 2>$werr
+        echo "  Write test to '$parent_dir/' OK."
+    else
+        echo "  Write test to '$parent_dir/' FAILED. sftp said:"
+        sed 's/^/    /' $werr
+        echo
+        echo "  Check that the remote user can create files at this path:"
+        echo "    ssh $host mkdir -p $parent_dir"
+        rm -f $probe_local $werr
+        return 1
+    end
+    rm -f $probe_local $werr
 
     echo
     echo "Run 'history_sync' to sync now, or wait for the next prompt-hook cycle."

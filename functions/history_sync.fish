@@ -15,10 +15,12 @@ function history_sync --description "Run one fish history sync cycle"
 
     if not set -q history_sync_host; or test -z "$history_sync_host"
         echo "history_sync: history_sync_host not set (run history_sync_setup)" >&2
+        __history_sync_record fail "history_sync_host not set"
         return 2
     end
     if not set -q history_sync_path; or test -z "$history_sync_path"
         echo "history_sync: history_sync_path not set (run history_sync_setup)" >&2
+        __history_sync_record fail "history_sync_path not set"
         return 2
     end
 
@@ -32,7 +34,7 @@ function history_sync --description "Run one fish history sync cycle"
     if set -q _flag_force
         __history_sync_log "force: clearing local + remote locks"
         rm -f $local_lock
-        printf '%s\n' "-rm $history_sync_path.lock" | __history_sync_sftp >/dev/null 2>&1
+        printf '%s\n' "-rm \"$history_sync_path.lock\"" | __history_sync_sftp >/dev/null 2>&1
     else
         # Per-machine lock: avoid two concurrent syncs from this host even if
         # multiple fish sessions wake up at once.
@@ -52,6 +54,11 @@ function history_sync --description "Run one fish history sync cycle"
 
     rm -f $local_lock
     __history_sync_log "sync finished with status $rc"
+    if test $rc -eq 0
+        __history_sync_record ok ""
+    else
+        __history_sync_record fail "sync exited with status $rc"
+    end
     return $rc
 end
 
@@ -74,7 +81,7 @@ function __history_sync_run --description "Internal: do the lock/download/merge/
     # get fails but we proceed with just the local file as the merge input.
     __history_sync_log "downloading $history_sync_path"
     set -l dl_err (mktemp /tmp/fhs_dlerr.XXXXXX)
-    if printf '%s\n' "get $history_sync_path $remote_dl" | __history_sync_sftp >/dev/null 2>$dl_err
+    if printf '%s\n' "get \"$history_sync_path\" \"$remote_dl\"" | __history_sync_sftp >/dev/null 2>$dl_err
         __history_sync_log "  downloaded $(wc -c <$remote_dl) bytes"
     else
         __history_sync_log "  remote file not found or unreadable; starting from empty"
@@ -92,37 +99,56 @@ function __history_sync_run --description "Internal: do the lock/download/merge/
         : >$local_snapshot
     end
 
-    set -l local_entries (grep -c '^- cmd:' $local_snapshot 2>/dev/null; or echo 0)
-    set -l remote_entries (grep -c '^- cmd:' $remote_dl 2>/dev/null; or echo 0)
+    set -l local_entries 0
+    grep -c '^- cmd:' $local_snapshot 2>/dev/null | read local_entries
+    set -l remote_entries 0
+    grep -c '^- cmd:' $remote_dl 2>/dev/null | read remote_entries
     __history_sync_log "merging: local=$local_entries entries, remote=$remote_entries entries"
 
     if not __history_sync_merge $local_snapshot $remote_dl $merged
-        set rc 1
+        __history_sync_log "merge failed"
+        rm -f $remote_dl $merged $local_snapshot
+        __history_sync_release_lock
+        return 1
     end
 
-    # Re-merge with the live history_file to capture any commands fish has
-    # appended during our sync. Window between this read and the mv below is
-    # sub-millisecond, far smaller than a human can type.
-    set -l final (mktemp /tmp/fhs_final.XXXXXX)
-    if not __history_sync_merge $merged $history_file $final
-        set rc 1
+    # Re-snapshot the live history_file to catch anything fish appended
+    # while the first merge was running. Final merge reads two static
+    # files, then we atomic-rename — minimal window for command loss.
+    set -l live_snapshot (mktemp /tmp/fhs_live.XXXXXX)
+    if test -e $history_file
+        cp $history_file $live_snapshot
+    else
+        : >$live_snapshot
     end
 
-    set -l final_entries (grep -c '^- cmd:' $final 2>/dev/null; or echo 0)
+    # Write the final merge next to history_file so the rename is a true
+    # rename(2) on the same filesystem (not a copy across /tmp boundary).
+    set -l hist_dir (dirname $history_file)
+    set -l final (mktemp "$hist_dir/.fhs_final.XXXXXX")
+    if not __history_sync_merge $merged $live_snapshot $final
+        __history_sync_log "final merge failed"
+        rm -f $remote_dl $merged $local_snapshot $live_snapshot $final
+        __history_sync_release_lock
+        return 1
+    end
+
+    set -l final_entries 0
+    grep -c '^- cmd:' $final 2>/dev/null | read final_entries
     __history_sync_log "merged: $final_entries entries"
 
-    if test -s $final; and test $rc -eq 0
-        # Atomic local write so a reader never sees a half-written file
-        cp $final $history_file.tmp.$fish_pid; and mv $history_file.tmp.$fish_pid $history_file
+    if test -s $final
+        # Atomic same-filesystem rename — no reader ever sees a partial file.
+        mv $final $history_file
         __history_sync_log "wrote local $history_file"
 
         # Upload to a temp path, then rename over the real one
         __history_sync_log "uploading merged history"
         set -l up_err (mktemp /tmp/fhs_uperr.XXXXXX)
         set -l remote_tmp "$history_sync_path.upload.tmp.$fish_pid"
-        set -l upload_batch "put $final $remote_tmp
--rm $history_sync_path
-rename $remote_tmp $history_sync_path"
+        set -l upload_batch "put \"$history_file\" \"$remote_tmp\"
+-rm \"$history_sync_path\"
+rename \"$remote_tmp\" \"$history_sync_path\""
         if printf '%s\n' $upload_batch | __history_sync_sftp >/dev/null 2>$up_err
             __history_sync_log "  upload OK"
         else
@@ -131,9 +157,11 @@ rename $remote_tmp $history_sync_path"
             set rc 1
         end
         rm -f $up_err
+    else
+        __history_sync_log "merged file is empty; skipping write"
     end
 
-    rm -f $remote_dl $merged $local_snapshot $final
+    rm -f $remote_dl $merged $local_snapshot $live_snapshot $final
 
     __history_sync_log "releasing remote lock"
     __history_sync_release_lock
