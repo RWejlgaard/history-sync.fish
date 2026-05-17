@@ -12,9 +12,14 @@ function __history_sync_merge --description "Merge two fish_history files into a
     test -e $file_a; or set file_a /dev/null
     test -e $file_b; or set file_b /dev/null
 
+    # Use \x1e (record sep) between the sort key and the entry, and \x1f
+    # (unit sep) in place of newlines within an entry. Neither byte may
+    # appear in a fish_history entry, so tabs/anything else in the cmd
+    # text survives the round-trip.
     awk '
     BEGIN {
-        SEP = "\x1f"
+        NL  = "\x1f"
+        FLD = "\x1e"
         entry = ""
         cmd_text = ""
         when_val = 0
@@ -50,16 +55,18 @@ function __history_sync_merge --description "Merge two fish_history files into a
         flush()
         for (k in seen) {
             e = seen[k]
-            gsub(/\n/, SEP, e)
-            printf "%d\t%s\n", order[k], e | "sort -n -k1,1"
+            gsub(/\n/, NL, e)
+            printf "%d%s%s\n", order[k], FLD, e | "sort -n -k1,1"
         }
         close("sort -n -k1,1")
     }
-    ' $file_a $file_b | awk -F '\t' '
-    BEGIN { SEP = "\x1f" }
+    ' $file_a $file_b | awk '
+    BEGIN { NL = "\x1f"; FLD = "\x1e" }
     {
-        e = $2
-        gsub(SEP, "\n", e)
+        i = index($0, FLD)
+        if (i == 0) next
+        e = substr($0, i + 1)
+        gsub(NL, "\n", e)
         print e
     }
     ' >$output

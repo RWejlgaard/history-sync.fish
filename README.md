@@ -130,4 +130,15 @@ Pin in `fisher` to whichever level of stability you want.
 - If `sftp` ever hangs (e.g. host unreachable), the background sync stays
   blocked — but a new sync won't start because the local PID lock detects
   the running one. The hung process is harmless and will eventually exit
-  via SSH's `ConnectTimeout`.
+  via SSH's `ConnectTimeout` (the plugin sets this to 10s).
+- After `fisher update`, existing long-lived fish sessions keep running
+  the *old* prompt hook from memory until they restart. New shells pick
+  up the new version automatically; old shells need a `exec fish` (or
+  just a normal exit) to refresh.
+- Stale lock detection uses the breaker's own clock (it waits until *it*
+  has observed the same lock for longer than `history_sync_lock_ttl`),
+  so cross-machine clock skew won't cause spurious lock breaking.
+- Sync failures are recorded in the universal vars
+  `__history_sync_last_success` and `__history_sync_last_error`, and an
+  append-only log lives at `~/.cache/fish-history-sync/sync.log`.
+  Run `history_sync_status` to see the current state at a glance.
