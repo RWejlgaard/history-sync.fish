@@ -180,5 +180,17 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
 
     rm -f $remote_dl $merged $local_snapshot $live_snapshot $final 2>/dev/null
 
+    # Tell every live fish session to re-read history. Universal variable
+    # write fans out and triggers __history_sync_on_reload in each session.
+    # Only bump when entries actually changed so quiet ticks don't churn.
+    if test $rc -eq 0
+        set -l on_disk_entries 0
+        grep -c '^- cmd:' $history_file 2>/dev/null | read on_disk_entries
+        if test $on_disk_entries -ne $local_entries
+            set -U __history_sync_reload (date +%s)-$fish_pid
+            __history_sync_log "signalled reload (entries $local_entries -> $on_disk_entries)"
+        end
+    end
+
     return $rc
 end

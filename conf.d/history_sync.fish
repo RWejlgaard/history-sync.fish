@@ -20,6 +20,14 @@ if not set -q history_sync_git_workdir
     set -g history_sync_git_workdir "$__fhs_data/fish-history-sync/repo"
 end
 
+function __history_sync_on_reload --on-variable __history_sync_reload
+    # A peer session (or this shell's own backgrounded sync) just wrote new
+    # entries to the history file. Pull them into this session's in-memory
+    # history so they show up in search and recall without a shell reload.
+    status is-interactive; or return
+    history merge 2>/dev/null
+end
+
 function __history_sync_on_prompt --on-event fish_prompt
     set -l backend $history_sync_backend
     test -n "$backend"; or set backend sftp
@@ -46,6 +54,7 @@ end
 
 function __history_sync_uninstall --on-event history_sync_uninstall
     functions -e __history_sync_on_prompt
+    functions -e __history_sync_on_reload
     # Erase every variable this plugin reads or writes so a fisher remove
     # leaves no trace. User config is included — re-running history_sync_setup
     # after re-install is cheap.
@@ -71,6 +80,7 @@ function __history_sync_uninstall --on-event history_sync_uninstall
     set -e history_sync_git_filename
     set -e history_sync_git_shallow
     set -e __history_sync_last
+    set -e __history_sync_reload
     set -e __history_sync_last_attempt
     set -e __history_sync_last_success
     set -e __history_sync_last_error
