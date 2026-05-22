@@ -12,15 +12,19 @@ machine converges to the same history regardless of order or backend.
 
 - A `fish_prompt` event hook checks how long it's been since the last sync.
 - If `history_sync_interval` seconds have elapsed, it spawns `history_sync`
-  in the background — your prompt is never blocked.
+  in the background - your prompt is never blocked.
 - The configured backend does a pull → merge → push cycle. Concurrency is
   handled per backend:
   - **sftp** holds an `*.lock` file via atomic SFTP `rename` and breaks
     stale locks by TTL.
   - **s3** uses S3 conditional writes (`If-Match: <etag>` / `If-None-Match`)
-    — no lock file needed.
+    - no lock file needed.
   - **git** relies on git push's ref CAS; non-fast-forward rejections
     trigger a re-pull + re-merge.
+- When the sync adds new entries to the local `fish_history`, every live
+  fish session on the same machine is signalled (via a universal variable)
+  to run `history merge` - so synced commands appear in your current shell
+  automatically, no `exec fish` needed.
 
 ## Install
 
@@ -75,7 +79,7 @@ Switch backend with `set -U history_sync_backend sftp\|s3\|git` and re-run
 
 ### SFTP setup notes
 
-SSH key auth only — the background sync sets `BatchMode=yes` so it can
+SSH key auth only - the background sync sets `BatchMode=yes` so it can
 never hang on a prompt. Verify `sftp user@host` works without a password
 first.
 
@@ -83,7 +87,7 @@ first.
 
 The `aws` CLI must be on PATH and able to authenticate (env vars,
 `~/.aws/credentials`, IAM role, or `--profile`). The backend uses the S3
-conditional-write headers added in late 2024 — AWS S3, Cloudflare R2,
+conditional-write headers added in late 2024 - AWS S3, Cloudflare R2,
 Backblaze B2, and MinIO all support them.
 
 ### git setup notes
@@ -91,7 +95,7 @@ Backblaze B2, and MinIO all support them.
 The `git` CLI must be on PATH. The plugin maintains a small local clone
 at `$history_sync_git_workdir`; `fisher remove` does **not** delete it.
 Most prompt-hook syncs produce no commit (the plugin skips the commit
-when the file hasn't changed), but over time the repo grows — set
+when the file hasn't changed), but over time the repo grows - set
 `history_sync_git_shallow=true` to clone with `--depth=100`, or run
 `git gc --aggressive` in the workdir periodically.
 
@@ -133,7 +137,7 @@ when the file hasn't changed), but over time the repo grows — set
 |---|---|---|
 | `history_sync_s3_bucket` | _required_ | bucket name |
 | `history_sync_s3_key` | `fish_history` | object key |
-| `history_sync_s3_endpoint` | _AWS default_ | endpoint URL — set for R2/B2/MinIO |
+| `history_sync_s3_endpoint` | _AWS default_ | endpoint URL - set for R2/B2/MinIO |
 | `history_sync_s3_region` | _aws CLI default_ | region |
 | `history_sync_s3_profile` | _aws CLI default_ | aws profile name |
 
@@ -147,7 +151,7 @@ when the file hasn't changed), but over time the repo grows — set
 | `history_sync_git_filename` | `fish_history` | filename inside the repo |
 | `history_sync_git_shallow` | _unset_ | set to `true` to clone with `--depth=100` |
 
-Set any of these directly with `set -U history_sync_interval 600` etc. —
+Set any of these directly with `set -U history_sync_interval 600` etc. -
 useful if you want to provision the plugin from dotfiles without running
 `history_sync_setup`.
 
@@ -184,7 +188,7 @@ history_sync_purge -a 'my-leaked-secret-prefix'
 
 ## Releases & contributing
 
-All changes land via PRs. PR titles follow Conventional Commits — the
+All changes land via PRs. PR titles follow Conventional Commits - the
 release workflow uses the title to decide the next version when the PR
 is merged to `main`:
 
@@ -200,15 +204,15 @@ allowed. Anything else fails the workflow.
 
 Each release publishes three tags pointing at the same commit:
 
-- `vX.Y.Z` — immutable per-release tag
-- `vX.Y` — floating, moves with each patch
-- `vX` — floating, moves with each minor or patch
+- `vX.Y.Z` - immutable per-release tag
+- `vX.Y` - floating, moves with each patch
+- `vX` - floating, moves with each minor or patch
 
 Pin in `fisher` to whichever level of stability you want.
 
 ## Caveats
 
-- The plugin **never deletes** history entries by default — running
+- The plugin **never deletes** history entries by default - running
   `history delete` on one machine only purges locally. Use
   `history_sync_purge` (or add the offending pattern to
   `history_sync_exclude_patterns`) to remove cross-machine.
@@ -217,12 +221,11 @@ Pin in `fisher` to whichever level of stability you want.
 - The remote stores history in the same fish format. You can `scp` /
   download it to bootstrap a new machine, or just let the first sync
   from that machine union everything together.
-- **Synced entries don't appear in your current shell** until it reloads
-  fish's history. Fish caches `fish_history` in memory and only re-reads
-  on `history merge` or shell restart. New shells pick them up
-  automatically; existing shells need `history merge` (or `exec fish`).
+- Synced entries appear in every live fish session automatically: when
+  the background sync adds new commands, it bumps a universal variable
+  that triggers `history merge` in each session. No `exec fish` needed.
 - If a backend operation hangs (e.g. host unreachable), the background
-  sync stays blocked — but a new sync won't start because the local PID
+  sync stays blocked - but a new sync won't start because the local PID
   lock detects the running one. The hung process is harmless and will
   eventually exit via the underlying tool's timeout (SFTP sets
   `ConnectTimeout=10`, git/aws default to a few minutes).
@@ -230,7 +233,7 @@ Pin in `fisher` to whichever level of stability you want.
   the *old* prompt hook from memory until they restart.
 - SFTP stale-lock detection uses the breaker's own clock so cross-machine
   clock skew can't cause spurious lock breaking.
-- S3 and git backends rely on server-side CAS — no lock file, so there's
+- S3 and git backends rely on server-side CAS - no lock file, so there's
   nothing to leak or break.
 - Sync failures are recorded in the universal vars
   `__history_sync_last_success` and `__history_sync_last_error`, and an
