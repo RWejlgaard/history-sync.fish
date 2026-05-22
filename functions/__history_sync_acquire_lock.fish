@@ -13,7 +13,7 @@ function __history_sync_acquire_lock --description "Acquire remote SFTP lock wit
     set -l rnd (random)
     set -l tmp_lockpath "$remote_path.lock.tmp.$host_id.$fish_pid.$rnd"
 
-    set -l local_payload (mktemp /tmp/fhs_lock.XXXXXX); or return 1
+    set -l local_payload (__history_sync_tmp lock); or return 1
     printf 'host=%s\npid=%s\nstart=%s\n' $host_id $fish_pid $now >$local_payload
 
     set -g __history_sync_lock_owned 0
@@ -35,7 +35,7 @@ function __history_sync_acquire_lock --description "Acquire remote SFTP lock wit
         # Rename fails (and aborts the batch) if the lockfile already exists,
         # which is our signal that someone else holds the lock. The -mkdir
         # ensures the parent dir exists on a fresh remote.
-        set -l err (mktemp /tmp/fhs_lockerr.XXXXXX)
+        set -l err (__history_sync_tmp lockerr)
         set -l batch "-mkdir \"$parent_dir\"
 put \"$local_payload\" \"$tmp_lockpath\"
 rename \"$tmp_lockpath\" \"$lockpath\""
@@ -55,7 +55,7 @@ rename \"$tmp_lockpath\" \"$lockpath\""
         # Inspect the existing lock. We compare TTL against OUR own clock:
         # the first time we observe a given start= value, note the local
         # time; if the same start= is still there past TTL, break it.
-        set -l holder_file (mktemp /tmp/fhs_holder.XXXXXX)
+        set -l holder_file (__history_sync_tmp holder)
         if printf '%s\n' "get \"$lockpath\" \"$holder_file\"" | __history_sync_sftp >/dev/null 2>&1
             set -l holder_host (string match -rg '^host=(.+)$' <$holder_file)
             set -l holder_pid (string match -rg '^pid=(\d+)$' <$holder_file)

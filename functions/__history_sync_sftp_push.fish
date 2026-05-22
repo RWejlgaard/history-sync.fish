@@ -3,7 +3,7 @@ function __history_sync_sftp_push --description "SFTP backend: upload merged fil
     # $argv[2] is the state token, unused for SFTP (lock is held across pull+push).
 
     __history_sync_log "uploading merged history"
-    set -l up_err (mktemp /tmp/fhs_uperr.XXXXXX)
+    set -l up_err (__history_sync_tmp uperr)
     set -l remote_tmp "$history_sync_path.upload.tmp.$fish_pid"
     set -l upload_batch "put \"$local_src\" \"$remote_tmp\"
 -rm \"$history_sync_path\"

@@ -105,7 +105,7 @@ function __history_sync_setup_sftp --description "Interactive SFTP setup + conne
 
     echo
     echo "Testing SFTP connection..."
-    set -l errfile (mktemp /tmp/fhs_test.XXXXXX)
+    set -l errfile (__history_sync_tmp test)
     if not printf '%s\n' pwd | __history_sync_sftp >/dev/null 2>$errfile
         echo "  SFTP connection FAILED. sftp said:"
         sed 's/^/    /' $errfile
@@ -127,9 +127,9 @@ function __history_sync_setup_sftp --description "Interactive SFTP setup + conne
 
     set -l parent_dir (dirname $path)
     set -l probe_remote "$path.setup_probe.$fish_pid"
-    set -l probe_local (mktemp /tmp/fhs_probe.XXXXXX)
+    set -l probe_local (__history_sync_tmp probe)
     echo "fish-history-sync setup probe" >$probe_local
-    set -l werr (mktemp /tmp/fhs_werr.XXXXXX)
+    set -l werr (__history_sync_tmp werr)
     set -l write_batch "-mkdir \"$parent_dir\"
 put \"$probe_local\" \"$probe_remote\"
 -rm \"$probe_remote\""
@@ -188,7 +188,7 @@ function __history_sync_setup_s3 --description "Interactive S3 setup + connectiv
 
     echo
     echo "Testing S3 reachability..."
-    set -l err (mktemp /tmp/fhs_s3test.XXXXXX)
+    set -l err (__history_sync_tmp s3test)
     set -l aws_args (__history_sync_s3_args)
     if aws $aws_args s3api head-bucket --bucket $bucket 2>$err
         echo "  Bucket head OK."
@@ -250,7 +250,7 @@ function __history_sync_setup_git --description "Interactive git setup + connect
 
     echo
     echo "Testing git reachability..."
-    set -l err (mktemp /tmp/fhs_gittest.XXXXXX)
+    set -l err (__history_sync_tmp gittest)
     if git ls-remote --exit-code -h $url $history_sync_git_branch >/dev/null 2>$err
         echo "  ls-remote OK (branch '$history_sync_git_branch' exists)."
     else if git ls-remote $url >/dev/null 2>$err

@@ -15,7 +15,7 @@ function __history_sync_git_pull --description "Git backend: fetch + reset to re
     __history_sync_git_init; or return 1
 
     __history_sync_log "git: fetching origin/$branch"
-    set -l err (mktemp /tmp/fhs_giterr.XXXXXX)
+    set -l err (__history_sync_tmp giterr)
     # Keep git's stdout out of our caller's command substitution — the state
     # token is what we echo at the end, and "HEAD is now at..." would mix in.
     if git -C $workdir fetch origin $branch >/dev/null 2>$err

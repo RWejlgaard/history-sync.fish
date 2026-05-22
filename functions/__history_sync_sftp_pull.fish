@@ -9,7 +9,7 @@ function __history_sync_sftp_pull --description "SFTP backend: acquire remote lo
     __history_sync_log "remote lock acquired"
 
     __history_sync_log "downloading $history_sync_path"
-    set -l dl_err (mktemp /tmp/fhs_dlerr.XXXXXX)
+    set -l dl_err (__history_sync_tmp dlerr)
     if printf '%s\n' "get \"$history_sync_path\" \"$local_dest\"" | __history_sync_sftp >/dev/null 2>$dl_err
         __history_sync_log "  downloaded $(wc -c <$local_dest) bytes"
     else

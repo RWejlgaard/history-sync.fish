@@ -33,32 +33,40 @@ function history_sync --description "Run one fish history sync cycle"
 
     __history_sync_log "starting sync: backend=$backend"
 
-    set -l local_lock /tmp/fish_history_sync.(id -u).pid
+    set -l tmpdir $TMPDIR
+    test -n "$tmpdir"; or set tmpdir /tmp
+    set -l local_lock $tmpdir/fish_history_sync.(id -u).lock
 
     if set -q _flag_force
         __history_sync_log "force: clearing local + remote locks"
-        rm -f $local_lock
+        rm -rf $local_lock
         if functions -q __history_sync_{$backend}_force_unlock
             __history_sync_{$backend}_force_unlock
         end
-    else
-        # Per-machine lock: avoid two concurrent syncs from this host even if
-        # multiple fish sessions wake up at once.
-        if test -e $local_lock
-            set -l old_pid (cat $local_lock 2>/dev/null)
-            if test -n "$old_pid"; and kill -0 $old_pid 2>/dev/null
-                __history_sync_log "another sync is in progress (pid $old_pid); skipping"
-                return 0
-            end
-            __history_sync_log "found stale local lock (pid $old_pid), taking it"
+    end
+
+    # Per-machine lock: avoid two concurrent syncs from this host even if
+    # multiple fish sessions wake up at once. mkdir is atomic — only one
+    # caller wins when two race.
+    if not mkdir $local_lock 2>/dev/null
+        set -l old_pid (cat $local_lock/pid 2>/dev/null)
+        if test -n "$old_pid"; and kill -0 $old_pid 2>/dev/null
+            __history_sync_log "another sync is in progress (pid $old_pid); skipping"
+            return 0
+        end
+        __history_sync_log "found stale local lock (pid $old_pid); reclaiming"
+        rm -rf $local_lock
+        if not mkdir $local_lock 2>/dev/null
+            __history_sync_log "another sync raced past stale lock; skipping"
+            return 0
         end
     end
-    echo $fish_pid >$local_lock
+    echo $fish_pid >$local_lock/pid
 
     set -l rc 0
     __history_sync_run; or set rc $status
 
-    rm -f $local_lock
+    rm -rf $local_lock
     __history_sync_log "sync finished with status $rc"
     if test $rc -eq 0
         __history_sync_record ok ""
@@ -73,8 +81,8 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
     test -n "$history_file"; or set history_file "$HOME/.local/share/fish/fish_history"
     set -l hist_dir (dirname $history_file)
 
-    set -l remote_dl (mktemp /tmp/fhs_remote.XXXXXX)
-    set -l merged (mktemp /tmp/fhs_merged.XXXXXX)
+    set -l remote_dl (__history_sync_tmp remote)
+    set -l merged (__history_sync_tmp merged)
 
     set -l state (__history_sync_backend pull $remote_dl)
     or begin
@@ -84,17 +92,17 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
 
     # Snapshot local at this instant so concurrent shells writing to
     # fish_history don't have their lines truncated by our merge.
-    set -l local_snapshot (mktemp /tmp/fhs_local.XXXXXX)
+    set -l local_snapshot (__history_sync_tmp local)
     if test -e $history_file
         cp $history_file $local_snapshot
     else
         : >$local_snapshot
     end
 
-    set -l local_entries 0
-    grep -c '^- cmd:' $local_snapshot 2>/dev/null | read local_entries
-    set -l remote_entries 0
-    grep -c '^- cmd:' $remote_dl 2>/dev/null | read remote_entries
+    set -l local_entries (grep -c '^- cmd:' $local_snapshot 2>/dev/null)
+    test -n "$local_entries"; or set local_entries 0
+    set -l remote_entries (grep -c '^- cmd:' $remote_dl 2>/dev/null)
+    test -n "$remote_entries"; or set remote_entries 0
     __history_sync_log "merging: local=$local_entries entries, remote=$remote_entries entries"
 
     if not __history_sync_merge $local_snapshot $remote_dl $merged
@@ -107,7 +115,7 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
     # Re-snapshot the live history_file to catch anything fish appended
     # while the first merge was running, then write to a sibling file so the
     # rename is a true rename(2) on the same filesystem.
-    set -l live_snapshot (mktemp /tmp/fhs_live.XXXXXX)
+    set -l live_snapshot (__history_sync_tmp live)
     if test -e $history_file
         cp $history_file $live_snapshot
     else
@@ -122,8 +130,8 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
         return 1
     end
 
-    set -l final_entries 0
-    grep -c '^- cmd:' $final 2>/dev/null | read final_entries
+    set -l final_entries (grep -c '^- cmd:' $final 2>/dev/null)
+    test -n "$final_entries"; or set final_entries 0
     __history_sync_log "merged: $final_entries entries"
 
     set -l rc 0
@@ -150,7 +158,7 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
                     break
                 end
                 __history_sync_log "push: CAS conflict (attempt $cas_attempt), re-pulling"
-                set -l remote_dl2 (mktemp /tmp/fhs_remote.XXXXXX)
+                set -l remote_dl2 (__history_sync_tmp remote)
                 set state (__history_sync_backend pull $remote_dl2)
                 if test $status -ne 0
                     rm -f $remote_dl2
@@ -184,8 +192,8 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
     # write fans out and triggers __history_sync_on_reload in each session.
     # Only bump when entries actually changed so quiet ticks don't churn.
     if test $rc -eq 0
-        set -l on_disk_entries 0
-        grep -c '^- cmd:' $history_file 2>/dev/null | read on_disk_entries
+        set -l on_disk_entries (grep -c '^- cmd:' $history_file 2>/dev/null)
+        test -n "$on_disk_entries"; or set on_disk_entries 0
         if test $on_disk_entries -ne $local_entries
             set -U __history_sync_reload (date +%s)-$fish_pid
             __history_sync_log "signalled reload (entries $local_entries -> $on_disk_entries)"

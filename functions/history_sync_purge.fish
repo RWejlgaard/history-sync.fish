@@ -32,7 +32,7 @@ function history_sync_purge --description "Strip entries matching <regex> from r
     test -n "$history_file"; or set history_file "$HOME/.local/share/fish/fish_history"
     set -l hist_dir (dirname $history_file)
 
-    set -l remote_dl (mktemp /tmp/fhs_remote.XXXXXX)
+    set -l remote_dl (__history_sync_tmp remote)
     set -l state (__history_sync_backend pull $remote_dl)
     or begin
         echo "history_sync_purge: pull failed" >&2
@@ -40,7 +40,7 @@ function history_sync_purge --description "Strip entries matching <regex> from r
         return 1
     end
 
-    set -l local_snap (mktemp /tmp/fhs_local.XXXXXX)
+    set -l local_snap (__history_sync_tmp local)
     if test -e $history_file
         cp $history_file $local_snap
     else
@@ -77,14 +77,16 @@ function history_sync_purge --description "Strip entries matching <regex> from r
         return 1
     end
 
-    set -l before 0
-    grep -c '^- cmd:' $remote_dl 2>/dev/null | read before
-    set -l after 0
-    grep -c '^- cmd:' $merged 2>/dev/null | read after
+    set -l before (grep -c '^- cmd:' $remote_dl 2>/dev/null)
+    test -n "$before"; or set before 0
+    set -l after (grep -c '^- cmd:' $merged 2>/dev/null)
+    test -n "$after"; or set after 0
+    set -l local_before (grep -c '^- cmd:' $local_snap 2>/dev/null)
+    test -n "$local_before"; or set local_before 0
     set -l removed (math "max(0, $before - $after)")
 
     mv $merged $history_file
-    echo "purge: kept $after entries (was $before remote / "(grep -c '^- cmd:' $local_snap 2>/dev/null)" local); removed at least $removed matching '$pattern'"
+    echo "purge: kept $after entries (was $before remote / $local_before local); removed at least $removed matching '$pattern'"
 
     __history_sync_backend push $history_file $state
     set -l push_rc $status
