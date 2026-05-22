@@ -33,7 +33,7 @@ function __history_sync_git_push --description "Git backend: commit + push, retu
     set host_id (string replace -ra '[^A-Za-z0-9_.-]' '_' -- $host_id)
     test -n "$host_id"; or set host_id unknown
 
-    set -l err (mktemp /tmp/fhs_giterr.XXXXXX)
+    set -l err (__history_sync_tmp giterr)
     # -c flags keep the commit attributable to this plugin without depending
     # on the user's global git identity (which may not exist on a fresh host).
     if not git -C $workdir \

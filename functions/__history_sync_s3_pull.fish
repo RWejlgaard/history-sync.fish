@@ -11,7 +11,7 @@ function __history_sync_s3_pull --description "S3 backend: download object + cap
     set -l aws_args (__history_sync_s3_args)
 
     __history_sync_log "s3: get s3://$bucket/$key"
-    set -l err (mktemp /tmp/fhs_s3err.XXXXXX)
+    set -l err (__history_sync_tmp s3err)
     # --query ETag --output text prints the (quoted) ETag string verbatim so
     # we can hand it straight back to --if-match later. The output file is a
     # positional arg to get-object.

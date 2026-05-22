@@ -23,7 +23,7 @@ function __history_sync_s3_push --description "S3 backend: conditional PUT again
     end
 
     __history_sync_log "s3: put s3://$bucket/$key (state=$state)"
-    set -l err (mktemp /tmp/fhs_s3err.XXXXXX)
+    set -l err (__history_sync_tmp s3err)
     if aws $aws_args s3api put-object \
             --bucket $bucket --key $key \
             --body $local_src \

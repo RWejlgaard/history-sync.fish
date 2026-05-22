@@ -16,7 +16,7 @@ function __history_sync_merge --description "Merge two fish_history files into a
     # arbitrarily many without blowing past argv limits.
     set -l patterns_file /dev/null
     if set -q history_sync_exclude_patterns; and test (count $history_sync_exclude_patterns) -gt 0
-        set patterns_file (mktemp /tmp/fhs_pat.XXXXXX)
+        set patterns_file (__history_sync_tmp pat)
         for p in $history_sync_exclude_patterns
             test -n "$p"; and echo $p >>$patterns_file
         end

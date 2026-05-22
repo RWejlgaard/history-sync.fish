@@ -25,7 +25,7 @@ function __history_sync_on_reload --on-variable __history_sync_reload
     # entries to the history file. Pull them into this session's in-memory
     # history so they show up in search and recall without a shell reload.
     status is-interactive; or return
-    history merge 2>/dev/null
+    history merge
 end
 
 function __history_sync_on_prompt --on-event fish_prompt
@@ -49,7 +49,6 @@ function __history_sync_on_prompt --on-event fish_prompt
     set -U __history_sync_last $now
 
     fish -c history_sync >/dev/null 2>&1 &
-    disown 2>/dev/null
 end
 
 function __history_sync_uninstall --on-event history_sync_uninstall

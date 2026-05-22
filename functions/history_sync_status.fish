@@ -60,8 +60,8 @@ function history_sync_status --description "Show fish-history-sync configuration
 
     if test -e $history_sync_history_file
         set -l sz (wc -c <$history_sync_history_file | string trim)
-        set -l ents 0
-        grep -c '^- cmd:' $history_sync_history_file 2>/dev/null | read ents
+        set -l ents (grep -c '^- cmd:' $history_sync_history_file 2>/dev/null)
+        test -n "$ents"; or set ents 0
         echo "  local size:   $sz bytes, $ents entries"
     end
 
@@ -71,7 +71,7 @@ function history_sync_status --description "Show fish-history-sync configuration
             if set -q history_sync_host; and set -q history_sync_path
                 echo
                 echo "Probing remote lock..."
-                set -l probe (mktemp /tmp/fhs_probe.XXXXXX)
+                set -l probe (__history_sync_tmp probe)
                 if printf '%s\n' "get \"$history_sync_path.lock\" \"$probe\"" | __history_sync_sftp >/dev/null 2>&1
                     set -l holder_start (string match -rg '^start=(\d+)' <$probe)
                     if test -n "$holder_start"
