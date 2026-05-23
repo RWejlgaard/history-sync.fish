@@ -47,34 +47,28 @@ function history_sync_purge --description "Strip entries matching <regex> from r
         : >$local_snap
     end
 
-    # Shadow the user's exclude patterns with their existing ones plus the
-    # one-shot pattern, so merge will drop matching entries from both sides.
-    set -l had_excludes 0
-    set -l saved_excludes
-    if set -q history_sync_exclude_patterns
-        set had_excludes 1
-        set saved_excludes $history_sync_exclude_patterns
-    end
-    set -g history_sync_exclude_patterns $saved_excludes $pattern
+    # Existing excludes plus the one-shot pattern — pass directly to merge so
+    # we never mutate the shared global.
+    set -l effective_patterns
+    set -q history_sync_exclude_patterns; and set effective_patterns $history_sync_exclude_patterns
+    set -a effective_patterns $pattern
 
     set -l merged (mktemp "$hist_dir/.fhs_purge.XXXXXX")
     set -l merge_rc 0
-    __history_sync_merge $local_snap $remote_dl $merged; or set merge_rc $status
-
-    # Restore exclude patterns (or persist the new one if requested)
-    if set -q _flag_add_to_excludes
-        set -U history_sync_exclude_patterns $saved_excludes $pattern
-    else if test $had_excludes -eq 1
-        set -g history_sync_exclude_patterns $saved_excludes
-    else
-        set -e history_sync_exclude_patterns
-    end
+    __history_sync_merge $local_snap $remote_dl $merged $effective_patterns
+    or set merge_rc $status
 
     if test $merge_rc -ne 0
         echo "history_sync_purge: merge failed" >&2
         rm -f $remote_dl $local_snap $merged
         __history_sync_backend abort $state
         return 1
+    end
+
+    # Persist the exclude only after merge succeeded — otherwise a failed run
+    # would leave peers stripping a pattern the user never confirmed worked.
+    if set -q _flag_add_to_excludes
+        set -U history_sync_exclude_patterns $effective_patterns
     end
 
     set -l before (grep -c '^- cmd:' $remote_dl 2>/dev/null)

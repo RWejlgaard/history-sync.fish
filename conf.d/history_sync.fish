@@ -8,7 +8,16 @@
 set -q history_sync_backend; or set -g history_sync_backend sftp
 set -q history_sync_interval; or set -g history_sync_interval 300
 set -q history_sync_lock_ttl; or set -g history_sync_lock_ttl 120
+# max_retries drives __history_sync_acquire_lock's exponential backoff (cap 30s).
+# 8 attempts → 7 sleeps of 2,4,8,16,30,30,30 = 120s, plus 0–50% jitter per sleep
+# (mean ~150s, max ~180s). Must exceed lock_ttl or a wedged peer's lock will
+# never get broken. If you lower max_retries, lower lock_ttl in proportion (or
+# vice versa).
 set -q history_sync_max_retries; or set -g history_sync_max_retries 8
+# CAS retries: how many times to re-pull + re-merge + re-push when S3/git report
+# the remote moved underneath us. Separate from max_retries because CAS each
+# retry does real work (full merge), so 3 is plenty.
+set -q history_sync_cas_retries; or set -g history_sync_cas_retries 3
 set -q history_sync_history_file; or set -g history_sync_history_file "$HOME/.local/share/fish/fish_history"
 
 # git backend defaults
@@ -48,7 +57,10 @@ function __history_sync_on_prompt --on-event fish_prompt
     # Claim the slot universally so peer sessions don't race us
     set -U __history_sync_last $now
 
+    # disown so the sync survives if the user closes the terminal mid-run —
+    # otherwise an interrupted SFTP sync would leave the remote lock for TTL.
     fish -c history_sync >/dev/null 2>&1 &
+    disown 2>/dev/null
 end
 
 function __history_sync_uninstall --on-event history_sync_uninstall
@@ -61,6 +73,7 @@ function __history_sync_uninstall --on-event history_sync_uninstall
     set -e history_sync_interval
     set -e history_sync_lock_ttl
     set -e history_sync_max_retries
+    set -e history_sync_cas_retries
     set -e history_sync_history_file
     set -e history_sync_exclude_patterns
     set -e history_sync_host

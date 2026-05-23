@@ -88,9 +88,12 @@ function __history_sync_setup_sftp --description "Interactive SFTP setup + conne
         set -U history_sync_identity $identity
     end
 
-    read -P "Extra SSH options, e.g. 'ProxyJump=bastion' [blank to keep]: " -l ssh_opts
+    # Comma-separated so values containing spaces (rare but possible, e.g.
+    # ProxyCommand=...) survive intact. Trim per-item to absorb cosmetic spaces.
+    read -P "Extra SSH options, comma-separated, e.g. 'ProxyJump=bastion,HostKeyAlgorithms=ssh-ed25519' [blank to keep]: " -l ssh_opts
     if test -n "$ssh_opts"
-        set -U history_sync_ssh_options (string split ' ' -- $ssh_opts)
+        set -l opts (string split ',' -- $ssh_opts | string trim | string match -rv '^$')
+        set -U history_sync_ssh_options $opts
     end
 
     read -P "Lock TTL seconds [$history_sync_lock_ttl]: " -l ttl
