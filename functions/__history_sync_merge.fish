@@ -1,10 +1,10 @@
-function __history_sync_merge --description "Merge two fish_history files into a third, dedup + sort by when, optionally drop entries matching history_sync_exclude_patterns"
+function __history_sync_merge --description "Merge two fish_history files into a third, dedup + sort by when, optionally drop entries matching exclude patterns (argv[4..] or history_sync_exclude_patterns)"
     set -l file_a $argv[1]
     set -l file_b $argv[2]
     set -l output $argv[3]
 
     if test -z "$file_a" -o -z "$file_b" -o -z "$output"
-        echo "usage: __history_sync_merge <a> <b> <out>" >&2
+        echo "usage: __history_sync_merge <a> <b> <out> [pattern ...]" >&2
         return 2
     end
 
@@ -12,12 +12,22 @@ function __history_sync_merge --description "Merge two fish_history files into a
     test -e $file_a; or set file_a /dev/null
     test -e $file_b; or set file_b /dev/null
 
+    # Explicit patterns (argv[4..]) win; otherwise fall back to the user's
+    # configured global. Lets callers like history_sync_purge inject a one-shot
+    # pattern without temporarily mutating shared state.
+    set -l patterns
+    if test (count $argv) -gt 3
+        set patterns $argv[4..-1]
+    else if set -q history_sync_exclude_patterns
+        set patterns $history_sync_exclude_patterns
+    end
+
     # Hand exclude patterns to awk via a sidecar file so users can have
     # arbitrarily many without blowing past argv limits.
     set -l patterns_file /dev/null
-    if set -q history_sync_exclude_patterns; and test (count $history_sync_exclude_patterns) -gt 0
+    if test (count $patterns) -gt 0
         set patterns_file (__history_sync_tmp pat)
-        for p in $history_sync_exclude_patterns
+        for p in $patterns
             test -n "$p"; and echo $p >>$patterns_file
         end
     end

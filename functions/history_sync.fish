@@ -141,7 +141,7 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
 
         # Push with CAS retry. SFTP holds a lock so push_cas never reports
         # conflict; S3 and git can, in which case we re-pull and re-merge.
-        set -l cas_max 3
+        set -l cas_max $history_sync_cas_retries
         set -l cas_attempt 0
         while true
             set cas_attempt (math $cas_attempt + 1)
@@ -160,7 +160,7 @@ function __history_sync_run --description "Internal: pull, merge, push (with CAS
                 __history_sync_log "push: CAS conflict (attempt $cas_attempt), re-pulling"
                 set -l remote_dl2 (__history_sync_tmp remote)
                 set state (__history_sync_backend pull $remote_dl2)
-                if test $status -ne 0
+                or begin
                     rm -f $remote_dl2
                     set rc 1
                     break
